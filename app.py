@@ -194,21 +194,30 @@ class PriorityTriage:
         # 5. REASONING & SUGGESTED
         reasoning = "Signal-based triage weighing tone, urgency, and subject matter."
         
-        # Suggested Response Selection (Human, concise, agent-like)
+        # Suggested Response Selection (Human, concise, agent-like with varied openings)
         if is_legal:
             suggested = "Understood — we’re taking this seriously. Our team will follow up directly."
         elif urgency == "High" or is_outage:
-            suggested = "Got it — that sounds urgent. Can you DM details so we can check this right away?"
+            openings = ["Got it — that sounds urgent.", "Hmm — that shouldn’t happen and looks urgent.", "Thanks for flagging this. That sounds like a priority."]
+            import random
+            opening = random.choice(openings)
+            suggested = f"{opening} Can you DM details so we can check this right away?"
         elif is_billing:
-            suggested = "Hey — that’s not expected. Can you DM your account email so we can take a look?"
+            openings = ["Hey — that’s not expected.", "Hmm — that shouldn’t happen with your billing.", "That's definitely not the experience we want."]
+            opening = random.choice(openings)
+            suggested = f"{opening} Can you DM your account email so we can take a look?"
         elif is_feature:
-            suggested = "Good question — not available yet, but happy to pass this along to the team."
+            suggested = "Good question — not available yet, but I can pass this along to the team."
         elif any(w in text_l for w in ["memory", "port", "limit", "fail", "error"]):
             suggested = "That looks like a configuration issue. Try checking your resource limits and redeploying — let me know if it still fails."
         elif has_sarcasm or sentiment == "Negative":
-            suggested = "Appreciate the feedback — can you share more about what didn’t work for you?"
+            openings = ["Appreciate the feedback —", "Thanks for letting us know —", "Sorry it's been a struggle —"]
+            opening = random.choice(openings)
+            suggested = f"{opening} what specifically isn’t working for you?"
         else:
-            suggested = "Hey — that’s not expected. Can you share a bit more detail so we can help figure this out?"
+            openings = ["Hey — that’s not expected.", "Hmm — that shouldn’t happen.", "Thanks for reaching out."]
+            opening = random.choice(openings)
+            suggested = f"{opening} Can you share a bit more detail so we can help figure this out?"
         
         is_confirmed = False
         if is_outage:
