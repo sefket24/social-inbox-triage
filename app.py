@@ -42,7 +42,9 @@ st.markdown("""
     .candidate-header { border-bottom: 1px solid var(--border); padding-bottom: 16px; margin-bottom: 24px; }
     .candidate-name { font-size: 22px; font-weight: 700; color: var(--text-primary); }
     .candidate-title { font-size: 13px; color: var(--accent); font-weight: 500; margin-bottom: 4px; }
-    .contact-links { font-size: 11px; color: var(--text-secondary); }
+    .contact-links { font-size: 11px; color: #ffffff; }
+    .contact-links a { color: #ffffff; text-decoration: none; }
+    .contact-links a:hover { color: var(--accent); }
 
     /* Message Card styling */
     .tweet-card {
