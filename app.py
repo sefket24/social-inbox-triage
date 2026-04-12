@@ -42,9 +42,19 @@ st.markdown("""
     .candidate-header { border-bottom: 1px solid var(--border); padding-bottom: 16px; margin-bottom: 24px; }
     .candidate-name { font-size: 22px; font-weight: 700; color: var(--text-primary); }
     .candidate-title { font-size: 13px; color: var(--accent); font-weight: 500; margin-bottom: 4px; }
-    .contact-links { font-size: 11px; color: #ffffff; }
-    .contact-links a { color: #ffffff; text-decoration: none; }
-    .contact-links a:hover { color: var(--accent); }
+    .contact-links { font-size: 11px; color: #ffffff; display: flex; gap: 12px; margin-top: 4px; }
+    .contact-links a { 
+        color: #ffffff; 
+        text-decoration: none; 
+        border-bottom: 1px solid rgba(255,255,255,0.3); 
+        padding-bottom: 1px;
+        transition: all 0.2s ease;
+    }
+    .contact-links a:hover { 
+        color: var(--accent); 
+        border-bottom-color: var(--accent);
+        opacity: 0.9;
+    }
 
     /* Message Card styling */
     .tweet-card {
@@ -198,8 +208,8 @@ st.markdown(f"""
     <div class="candidate-name">Sefket Nouri</div>
     <div class="candidate-title"><a href="https://replit.com/" target="_blank" style="color:var(--accent); text-decoration:none;">Replit</a> Social Media Support Specialist candidate</div>
     <div class="contact-links">
-        <a href="mailto:me@sefketnouri.com">me@sefketnouri.com</a> • 
-        <a href="https://www.linkedin.com/in/sefketnouri/" target="_blank">LinkedIn</a> • 
+        <a href="mailto:me@sefketnouri.com">me@sefketnouri.com</a>
+        <a href="https://www.linkedin.com/in/sefketnouri/" target="_blank">LinkedIn</a>
         <a href="https://replit.com/@sefketnouri" target="_blank">Replit</a>
     </div>
 </div>
