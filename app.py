@@ -193,7 +193,22 @@ class PriorityTriage:
         
         # 5. REASONING & SUGGESTED
         reasoning = "Signal-based triage weighing tone, urgency, and subject matter."
-        suggested = "Hi! I'm sorry to hear that. Can you send us a DM with your email so we can investigate this right away?"
+        
+        # Suggested Response Selection (Human, concise, agent-like)
+        if is_legal:
+            suggested = "Understood — we’re taking this seriously. Our team will follow up directly."
+        elif urgency == "High" or is_outage:
+            suggested = "Got it — that sounds urgent. Can you DM details so we can check this right away?"
+        elif is_billing:
+            suggested = "Hey — that’s not expected. Can you DM your account email so we can take a look?"
+        elif is_feature:
+            suggested = "Good question — not available yet, but happy to pass this along to the team."
+        elif any(w in text_l for w in ["memory", "port", "limit", "fail", "error"]):
+            suggested = "That looks like a configuration issue. Try checking your resource limits and redeploying — let me know if it still fails."
+        elif has_sarcasm or sentiment == "Negative":
+            suggested = "Appreciate the feedback — can you share more about what didn’t work for you?"
+        else:
+            suggested = "Hey — that’s not expected. Can you share a bit more detail so we can help figure this out?"
         
         is_confirmed = False
         if is_outage:
@@ -207,16 +222,13 @@ class PriorityTriage:
                 reasoning = "Potential outage reported. Support team currently validating reproducibility."
         
         if is_feature:
-            suggested = "That's a great idea! I'll pass that feature request along to the product team."
             reasoning = "Routine feature request. Logging for product review."
-        elif is_billing:
-            suggested = "I understand the frustration with billing. Can you DM your account email so we can look at that charge?"
 
         return {
             "intent": intent, "sentiment": sentiment, "urgency": urgency, "risk": risk,
             "next_step": next_step, "channel": channel, "target": target, "flow": flow, "owner": owner,
             "reasoning": reasoning, "suggested": suggested, 
-            "is_confirmed": is_confirmed, "is_legal": False
+            "is_confirmed": is_confirmed, "is_legal": is_legal
         }
 
 # --- APP UI ---
