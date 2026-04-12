@@ -127,7 +127,7 @@ class PriorityTriage:
                 "next_step": "Escalate to Exec (Slack)",
                 "flow": "Direct to Exec",
                 "reasoning": "Legal risk override. Directing to executive leadership.",
-                "suggested": "I hear your concern. I've escalated this specifically to our senior leadership team to address this with you.",
+                "suggested": "Understood — we’re taking this seriously. Our team will follow up directly.",
                 "is_confirmed": False,
                 "is_legal": True,
                 "channel": "Public"
@@ -137,7 +137,7 @@ class PriorityTriage:
         is_enterprise = "enterprise" in text_l
         is_outage = any(w in text_l for w in ["site is down", "website is down", "app is down", "service is down", "not loading"])
         is_billing = any(w in text_l for w in ["charged", "billing", "payment", "refund", "billed"])
-        is_frustrated = any(w in text_l for w in ["no response", "still waiting", "what's going on", "not working", "disappeared"]) or "??" in text_l
+        is_frustrated = any(w in text_l for w in ["no response", "still waiting", "what's going on", "not working", "disappeared", "terrible", "bad", "worst"]) or "??" in text_l
         is_confused = any(w in text_l for w in ["idk", "what happened"]) or "??" in text_l
         is_feature = any(w in text_l for w in ["do you have", "is there a way to", "feature"])
         
@@ -158,7 +158,7 @@ class PriorityTriage:
         if is_feature: intent = "Feature request"
         elif is_billing: intent = "Billing"
         elif is_outage: intent = "Outage"
-        elif has_sarcasm: intent = "Complaint"
+        elif has_sarcasm or is_frustrated: intent = "Complaint"
         elif is_enterprise: intent = "Enterprise"
         
         # Sentiment mapping
