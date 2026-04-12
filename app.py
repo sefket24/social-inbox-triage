@@ -214,8 +214,12 @@ st.caption("Advanced Decision Support Engine • Outage & Impact Detection Activ
 st.markdown(f"""
 <div class="candidate-header">
     <div class="candidate-name">Sefket Nouri</div>
-    <div class="candidate-title">Social Media Support Specialist candidate</div>
-    <div class="contact-links">me@sefketnouri.com • LinkedIn • Portfolio</div>
+    <div class="candidate-title"><a href="https://replit.com/" target="_blank" style="color:var(--accent); text-decoration:none;">Replit</a> Social Media Support Specialist candidate</div>
+    <div class="contact-links">
+        <a href="mailto:me@sefketnouri.com">me@sefketnouri.com</a> • 
+        <a href="https://www.linkedin.com/in/sefketnouri/" target="_blank">LinkedIn</a> • 
+        <a href="https://replit.com/@sefketnouri" target="_blank">Replit</a>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
