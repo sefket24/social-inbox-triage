@@ -207,10 +207,7 @@ st.markdown(f"""
         <a href="https://replit.com/@sefketnouri" target="_blank">Replit</a>
     </div>
     <div class="app-description">
-        Social support is noisy. I built small tools to turn that into clear decisions across deployment, billing, and inbound triage.
-    </div>
-    <div class="workflow-nav">
-        Workflow: Deployment Debugger → Support Gatekeeper → <span style="color:var(--accent); border-bottom: 2px solid var(--accent);">Social Inbox Triage</span>
+        Social support is noisy. I built this focused triage engine to turn messy social signals into structured decisions across internal deployment, billing, and engineering workflows.
     </div>
 </div>
 """, unsafe_allow_html=True)
