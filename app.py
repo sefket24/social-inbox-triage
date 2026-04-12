@@ -91,10 +91,7 @@ st.markdown("""
         border: none !important;
         border-radius: 8px !important;
         padding: 10px !important;
-        transition: transform 0.1s ease !important;
     }
-    .stButton>button:hover { transform: scale(1.02); }
-    .stButton>button:active { transform: scale(0.98); }
 
     /* Payload */
     .slack-payload { background: var(--payload-bg); color: var(--payload-text); border: 1px solid #ced4da; border-radius: 10px; padding: 16px; font-size: 12px; margin-top: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
@@ -114,37 +111,29 @@ class PriorityTriage:
     def analyze(text):
         text_l = text.lower()
         
-        # 1. Feature Extraction (Base)
+        # 1. Feature Extraction
         is_legal = any(w in text_l for w in ["lawyer", "sue", "legal", "attorney", "suing", "court"])
         is_enterprise = any(w in text_l for w in ["enterprise", "business", "client", "customer account"])
         is_account = any(w in text_l for w in ["locked out", "can't log in", "account access"])
         has_profanity = any(w in text_l for w in ["fuck", "shit", "damn", "wtf"])
         
-        # New Feature Extractions (Outage & Financial Impact)
-        is_outage = any(w in text_l for w in ["site is down", "website is down", "app is down", "service is down", "can't access", "not loading"])
+        is_outage = any(w in text_l for w in ["site is down", "website is down", "app is down", "service is down", "not loading"])
         is_financial = any(w in text_l for w in ["losing money", "costing me money", "revenue", "customers affected", "business impact"])
         
-        # Urgency Detection (Advanced)
+        # Urgency Detection
         urgency_score = 0
         urgency_phrases = ["urgent", "asap", "right now", "tight deadline", "need help", "fast", "!!"]
         for p in urgency_phrases:
             if p in text_l: urgency_score += 1
         
-        # ALL CAPS Detection
         caps_count = len(re.findall(r'\b[A-Z]{3,}\b', text))
         if caps_count >= 2: urgency_score += 1
         
         # --- RULE STACKING ---
-        # Default states
-        sentiment = "Neutral"
-        urgency = "Low"
-        risk = "Low"
-        intent = "Question"
-        channel = "Public"
-        next_step = "Reply Publicly"
-        target = "Support"
+        sentiment, urgency, risk, intent, channel = "Neutral", "Low", "Low", "Question", "Public"
+        next_step, target, flow = "Reply Publicly", "Support (Zendesk)", "Support Ownership"
         
-        # Intent & Signal
+        # Intent
         if is_business := is_enterprise: intent = "Enterprise"
         elif is_outage: intent = "Outage"
         elif any(w in text_l for w in ["bug", "fail", "broken", "deploy"]): intent = "Bug"
@@ -152,65 +141,56 @@ class PriorityTriage:
         elif is_account: intent = "Account Access"
 
         # Sentiment
-        if has_profanity or any(w in text_l for w in ["not working", "locked out", "worst", "broken"]) or is_outage or is_financial:
+        if has_profanity or any(w in text_l for w in ["not working", "locked out", "broken"]) or is_outage or is_financial:
             sentiment = "Negative"
-        if ("!!" in text or urgency_score >= 1) and (is_outage or is_financial or has_profanity):
-            sentiment = "Negative"
-        elif any(w in text_l for w in ["great", "thanks", "love", "awesome", "good"]):
-            sentiment = "Positive"
 
-        # Urgency & Risk Logic (Base)
-        if urgency_score >= 1: urgency = "Medium"
-        if urgency_score >= 2 or is_account or is_enterprise: urgency = "High"
+        # Urgency & Risk
+        if urgency_score >= 1 or is_account: urgency = "Medium"
+        if urgency_score >= 2 or is_enterprise or is_outage: urgency = "High"
+        if has_profanity or is_financial or is_legal or is_enterprise: risk = "High"
+        elif is_outage: risk = "Medium"
+
+        # ESCALATION FLOW (Two-Stage Model)
+        esc_required = (risk == "High" or urgency == "High")
         
-        # Priority 1: OUTAGE + FINANCIAL OVERRIDE
-        if is_outage or is_financial:
-            urgency = "High"
-            risk = "High" if is_financial else "Medium"
-            target = "Engineering (Linear)"
-            if is_outage and is_financial:
-                risk = "High"
-                next_step = "Escalate + Respond"
-            else:
-                next_step = "Reply Publicly (Offer DM)"
-
-        # Priority 2: LEGAL OVERRIDE (CRITICAL)
+        # Default Flow: Support (Zendesk) -> Engineering (Linear)
+        flow = "Support (Zendesk) → Engineering (Linear)"
+        target = "Support (Zendesk)"
+        
         if is_legal:
-            risk, urgency = "High", "High"
-            next_step, target = "Escalate", "Exec (Slack)"
-        
-        # Priority 3: Account Access / Sensitive
+            target, next_step, flow = "Exec (Slack)", "Escalate Immediately", "Direct to Exec"
+        elif is_outage and is_financial:
+            target, next_step = "Engineering (Linear)", "Escalate + Respond (Urgent)"
+            flow = "Fast-Track Support → Engineering"
+        elif is_outage:
+            target, next_step = "Support (Zendesk)", "Reply immediately (Offer DM) + escalate via Support"
         elif is_account:
-            urgency = "High" if urgency_score >= 1 else "Medium"
-            next_step = "Reply Publicly (Offer DM)"
-            target = "Support"
-            
-        # Priority 4: Enterprise / Professional
-        elif is_enterprise:
-            risk, urgency = "High", "High"
-            next_step, target = "Escalate", "Support"
+            target, next_step = "Support (Zendesk)", "Reply Publicly (Offer DM)"
+            flow = "Internal Verification Flow"
 
-        # Specific Reasoning
-        reasoning = "Standard triage process applied."
-        if is_outage and is_financial: reasoning = "Major service outage with direct business impact detected. Escalated for immediate engineering response."
-        elif is_outage: reasoning = "Service availability issue detected. Prioritizing for technical review."
-        elif is_financial: reasoning = "Financial performance impact reported. High-priority risk handling active."
-        elif is_legal: reasoning = "Legal threat detected. Bypassing standard queues and escalating to executive leadership."
-        elif is_account: reasoning = "Account access issue requires sensitive data verification. Offering move to DM."
+        # Final Validation Confidence
+        is_high_confidence_bug = (is_outage and is_financial) or (intent == "Bug" and urgency == "High")
 
-        suggested = "Hi! I'm sorry to hear that. Can you send us a DM with your email so we can investigate this right away?"
-        if is_outage: suggested = "We're currently investigating reports of site issues. I've escalated this to our team. Please DM us your email for specific updates."
+        # Specialized Reasoning
+        reasoning = "Initial support ownership active. Validating issue before technical escalation."
+        if is_legal: reasoning = "Legal risk detected. Bypassing validation; direct escalation to leadership."
+        elif is_outage and is_financial: reasoning = "Major financial impact confirmed. Fast-tracking to Engineering for immediate resolution."
+        elif is_outage: reasoning = "Potential outage reported. Support validating reproducibility before engineering handoff."
+        elif is_account: reasoning = "Sensitive account access issue. Gathering details via DM first."
+
+        suggested = "Hi! I'm sorry to hear that. Can you send us a DM with your email so we can verify the details and help right away?"
         if is_legal: suggested = "I hear your concern. I've escalated this specifically to our senior leadership team to address this with you."
 
         return {
             "intent": intent, "sentiment": sentiment, "urgency": urgency, "risk": risk,
-            "next_step": next_step, "channel": channel, "target": target,
-            "reasoning": reasoning, "suggested": suggested
+            "next_step": next_step, "channel": channel, "target": target, "flow": flow,
+            "reasoning": reasoning, "suggested": suggested, 
+            "is_high_confidence_bug": is_high_confidence_bug, "is_legal": is_legal
         }
 
 # --- APP UI ---
 st.title("📥 Social Inbox Triage")
-st.caption("Advanced Decision Support Engine • Outage & Impact Detection Active")
+st.caption("Decision Support Engine • Two-Stage Escalation Active")
 
 # Header
 st.markdown(f"""
@@ -225,7 +205,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Instruction & Input
+# Input
 st.markdown('<div class="outfit-font" style="font-size:13px; font-weight:600; color:var(--text-secondary); margin-bottom:4px;">Paste messy social input below:</div>', unsafe_allow_html=True)
 message = st_keyup("Input", value="my website is down!! I NEED help! I'm losing money", key="msg_input", label_visibility="collapsed")
 
@@ -250,8 +230,8 @@ st.markdown(f"""
     <div class="badge-card"><div class="badge-label">Sentiment</div><div class="badge-value val-{analysis['sentiment'].lower().replace('/','')}">{analysis['sentiment']}</div></div>
     <div class="badge-card"><div class="badge-label">Urgency</div><div class="badge-value val-{analysis['urgency'].lower()}">{analysis['urgency']}</div></div>
     <div class="badge-card"><div class="badge-label">Risk Level</div><div class="badge-value val-{analysis['risk'].lower()}">{analysis['risk']}</div></div>
-    <div class="badge-card"><div class="badge-label">Channel</div><div class="badge-value">{analysis['channel']}</div></div>
-    <div class="badge-card"><div class="badge-label">Next Step</div><div class="badge-value">{analysis['next_step']}</div></div>
+    <div class="badge-card"><div class="badge-label">Escalation Flow</div><div class="badge-value" style="font-size:11px;">{analysis['flow']}</div></div>
+    <div class="badge-card"><div class="badge-label">Next Step</div><div class="badge-value" style="font-size:11px;">{analysis['next_step']}</div></div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -265,33 +245,41 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Escalation
-if "Escalate" in analysis['next_step']:
+# Escalation Workflow
+if ("Escalate" in analysis['next_step']) or (analysis['urgency'] == "High"):
     st.markdown('<div class="section-title">Escalation</div>', unsafe_allow_html=True)
     st.markdown(f"""
     <div class="escalation-box active">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
             <div><div class="badge-label">Status</div><div class="badge-value" style="color:var(--danger);">Required</div></div>
+            <div><div class="badge-label">Current Owner</div><div class="badge-value">Support (Triage)</div></div>
             <div><div class="badge-label">Target</div><div class="badge-value">{analysis['target']}</div></div>
         </div>
     """, unsafe_allow_html=True)
     
-    target_short = "Exec" if "Exec" in analysis['target'] else ("Engineering" if "Engineering" in analysis['target'] else "Support")
-    if st.button(f"Escalate to {target_short} Slack"):
-        st.session_state.esc_done = True
-        st.session_state.last_message = message
+    # 5. BUTTON LOGIC
+    if analysis['is_legal']: btn_label = "Escalate to Exec Slack"
+    elif analysis['is_high_confidence_bug']: btn_label = "Escalate to Engineering"
+    else: btn_label = "Escalate to Support"
+        
+    if st.button(btn_label):
+        st.session_state.esc_v2 = True
+        st.session_state.m_v2 = message
     
-    if st.session_state.get('esc_done') and st.session_state.get('last_message') == message:
+    if st.session_state.get('esc_v2') and st.session_state.get('m_v2') == message:
         ch = "#exec-escalations" if "Exec" in analysis['target'] else ("#linear-bugs" if "Engineering" in analysis['target'] else "#support-tickets")
         st.success(f"Escalated to {ch}")
+        
+        # 6. PAYLOAD UPDATES
         st.markdown(f"""
         <div class="slack-payload">
-            <div class="payload-title">Slack Internal Payload: {ch}</div>
-            <div class="payload-row"><div class="payload-label">Priority:</div><div style="color: #dc3545; font-weight: 800;">URGENT</div></div>
-            <div class="payload-row"><div class="payload-label">Reason:</div><div>{analysis['reasoning']}</div></div>
+            <div class="payload-title">Internal Payload: {ch}</div>
+            <div class="payload-row"><div class="payload-label">Stage:</div><div>Initial Triage</div></div>
+            <div class="payload-row"><div class="payload-label">Owner:</div><div>Support</div></div>
+            <div class="payload-row"><div class="payload-label">Priority:</div><div style="color: #dc3545; font-weight: 800;">{analysis['urgency'].upper()}</div></div>
             <div class="payload-label" style="margin-top:10px; margin-bottom:4px;">Draft Summary:</div>
-            <div style="background: white; border: 1px solid #dee2e6; padding: 10px; border-radius: 6px; color: #333;">
-                Account issue detected with {analysis['sentiment']} sentiment. Routing to {analysis['target']} for immediate resolution.
+            <div style="background: white; border: 1px solid #dee2e6; padding: 10px; border-radius: 6px; color: #333; font-size:12px;">
+                User reporting {analysis['intent'].lower()} affecting customers and revenue. Needs immediate validation.
             </div>
             <div class="payload-label" style="margin-top:12px; margin-bottom:4px;">Original Message:</div>
             <div style="font-style: italic; color: #6c757d; border-left: 3px solid #dee2e6; padding-left: 10px;">"{message}"</div>
@@ -300,4 +288,4 @@ if "Escalate" in analysis['next_step']:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # Footer
-st.markdown("<br><center style='color: var(--text-secondary); font-size: 11px;'>Sefket Nouri • Service Outage & Impact Intelligence • Reactive Mode</center>", unsafe_allow_html=True)
+st.markdown("<br><center style='color: var(--text-secondary); font-size: 11px;'>Sefket Nouri • Multi-Stage Triage Logic • Reactive Engine</center>", unsafe_allow_html=True)
