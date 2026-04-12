@@ -112,15 +112,19 @@ class PriorityTriage:
     def analyze(text):
         text_l = text.lower()
         
-        # 1. Feature Extraction
+        # 1. Feature Extraction (Base)
         is_legal = any(w in text_l for w in ["lawyer", "sue", "legal", "attorney", "suing", "court"])
         is_enterprise = any(w in text_l for w in ["enterprise", "business", "client", "customer account"])
-        is_account = any(w in text_l for w in ["locked out", "can't log in", "account access", "password reset"])
-        has_profanity = any(w in text_l for w in ["fuck", "shit", "damn", "bullshit"])
+        is_account = any(w in text_l for w in ["locked out", "can't log in", "account access"])
+        has_profanity = any(w in text_l for w in ["fuck", "shit", "damn", "wtf"])
+        
+        # New Feature Extractions (Outage & Financial Impact)
+        is_outage = any(w in text_l for w in ["site is down", "website is down", "app is down", "service is down", "can't access", "not loading"])
+        is_financial = any(w in text_l for w in ["losing money", "costing me money", "revenue", "customers affected", "business impact"])
         
         # Urgency Detection (Advanced)
         urgency_score = 0
-        urgency_phrases = ["urgent", "asap", "right now", "tight deadline", "need help", "fast"]
+        urgency_phrases = ["urgent", "asap", "right now", "tight deadline", "need help", "fast", "!!"]
         for p in urgency_phrases:
             if p in text_l: urgency_score += 1
         
@@ -138,57 +142,62 @@ class PriorityTriage:
         next_step = "Reply Publicly"
         target = "Support"
         
-        # Sentiment
-        if has_profanity or any(w in text_l for w in ["not working", "locked out", "worst", "broken"]):
-            sentiment = "Negative"
-        elif any(w in text_l for w in ["great", "thanks", "love", "awesome", "good"]):
-            sentiment = "Positive"
-        elif any(w in text_l for w in ["lol", "great job", "wow"]):
-            sentiment = "Mixed/Negative" if "actually" in text_l or has_profanity else "Positive"
-
-        # Intent
+        # Intent & Signal
         if is_business := is_enterprise: intent = "Enterprise"
+        elif is_outage: intent = "Outage"
         elif any(w in text_l for w in ["bug", "fail", "broken", "deploy"]): intent = "Bug"
         elif any(w in text_l for w in ["billing", "overbilled", "charge", "refund"]): intent = "Billing"
         elif is_account: intent = "Account Access"
 
-        # Urgency & Risk Logic
+        # Sentiment
+        if has_profanity or any(w in text_l for w in ["not working", "locked out", "worst", "broken"]) or is_outage or is_financial:
+            sentiment = "Negative"
+        if ("!!" in text or urgency_score >= 1) and (is_outage or is_financial or has_profanity):
+            sentiment = "Negative"
+        elif any(w in text_l for w in ["great", "thanks", "love", "awesome", "good"]):
+            sentiment = "Positive"
+
+        # Urgency & Risk Logic (Base)
         if urgency_score >= 1: urgency = "Medium"
-        if urgency_score >= 2 or (is_account and urgency_score >= 1) or is_enterprise: urgency = "High"
+        if urgency_score >= 2 or is_account or is_enterprise: urgency = "High"
         
-        # Priority 1: LEGAL OVERRIDE (CRITICAL)
+        # Priority 1: OUTAGE + FINANCIAL OVERRIDE
+        if is_outage or is_financial:
+            urgency = "High"
+            risk = "High" if is_financial else "Medium"
+            target = "Engineering (Linear)"
+            if is_outage and is_financial:
+                risk = "High"
+                next_step = "Escalate + Respond"
+            else:
+                next_step = "Reply Publicly (Offer DM)"
+
+        # Priority 2: LEGAL OVERRIDE (CRITICAL)
         if is_legal:
             risk, urgency = "High", "High"
             next_step, target = "Escalate", "Exec (Slack)"
         
-        # Priority 2: Account Access / Sensitive
+        # Priority 3: Account Access / Sensitive
         elif is_account:
-            risk = "Medium" if urgency == "High" else "Low"
+            urgency = "High" if urgency_score >= 1 else "Medium"
             next_step = "Reply Publicly (Offer DM)"
             target = "Support"
-            channel = "Public"
             
-        # Priority 3: Billing / Bug / Enterprise
-        else:
-            if has_profanity or urgency == "High": risk = "High"
-            if intent == "Billing": target = "Support"
-            elif intent == "Bug": target = "Engineering (Linear)"
-            elif intent == "Enterprise": risk, urgency, target = "High", "High", "Support"
+        # Priority 4: Enterprise / Professional
+        elif is_enterprise:
+            risk, urgency = "High", "High"
+            next_step, target = "Escalate", "Support"
 
-            if risk == "High" or (intent == "Bug" and urgency == "High"):
-                next_step = "Escalate"
-            elif intent == "Billing" or has_profanity:
-                next_step = "Reply Publicly (Offer DM)"
-                channel = "Public"
-
-        # Specialized Reasoning
+        # Specific Reasoning
         reasoning = "Standard triage process applied."
-        if is_legal: reasoning = "Legal threat detected. Bypassing engineering; escalating to executive leadership immediately."
-        elif is_enterprise: reasoning = "Enterprise client account detected with urgency. Prioritizing for high-touch support."
-        elif is_account: reasoning = "Account parity issue. Requesting move to private DM to verify identity securely."
-        elif has_profanity: reasoning = "Hostile sentiment detected. Escalating to prevent social brand damage."
+        if is_outage and is_financial: reasoning = "Major service outage with direct business impact detected. Escalated for immediate engineering response."
+        elif is_outage: reasoning = "Service availability issue detected. Prioritizing for technical review."
+        elif is_financial: reasoning = "Financial performance impact reported. High-priority risk handling active."
+        elif is_legal: reasoning = "Legal threat detected. Bypassing standard queues and escalating to executive leadership."
+        elif is_account: reasoning = "Account access issue requires sensitive data verification. Offering move to DM."
 
-        suggested = "Hi! I'm sorry about the experience. Can you send us a DM so we can verify your account and help immediately?"
+        suggested = "Hi! I'm sorry to hear that. Can you send us a DM with your email so we can investigate this right away?"
+        if is_outage: suggested = "We're currently investigating reports of site issues. I've escalated this to our team. Please DM us your email for specific updates."
         if is_legal: suggested = "I hear your concern. I've escalated this specifically to our senior leadership team to address this with you."
 
         return {
@@ -199,7 +208,7 @@ class PriorityTriage:
 
 # --- APP UI ---
 st.title("📥 Social Inbox Triage")
-st.caption("Advanced Decision Support Engine • Priority Stack Active")
+st.caption("Advanced Decision Support Engine • Outage & Impact Detection Active")
 
 # Header
 st.markdown(f"""
@@ -212,7 +221,7 @@ st.markdown(f"""
 
 # Instruction & Input
 st.markdown('<div class="outfit-font" style="font-size:13px; font-weight:600; color:var(--text-secondary); margin-bottom:4px;">Paste messy social input below:</div>', unsafe_allow_html=True)
-message = st_keyup("Input", value="fuck, you overbilled me", key="msg_input", label_visibility="collapsed")
+message = st_keyup("Input", value="my website is down!! I NEED help! I'm losing money", key="msg_input", label_visibility="collapsed")
 
 # Read-only preview
 st.markdown(f"""
@@ -251,7 +260,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # Escalation
-if analysis['next_step'] == "Escalate":
+if "Escalate" in analysis['next_step']:
     st.markdown('<div class="section-title">Escalation</div>', unsafe_allow_html=True)
     st.markdown(f"""
     <div class="escalation-box active">
@@ -272,7 +281,7 @@ if analysis['next_step'] == "Escalate":
         st.markdown(f"""
         <div class="slack-payload">
             <div class="payload-title">Slack Internal Payload: {ch}</div>
-            <div class="payload-row"><div class="payload-label">Priority:</div><div style="color: #dc3545; font-weight: 800;">{'URGENT' if analysis['urgency'] == 'High' else 'HIGH'}</div></div>
+            <div class="payload-row"><div class="payload-label">Priority:</div><div style="color: #dc3545; font-weight: 800;">URGENT</div></div>
             <div class="payload-row"><div class="payload-label">Reason:</div><div>{analysis['reasoning']}</div></div>
             <div class="payload-label" style="margin-top:10px; margin-bottom:4px;">Draft Summary:</div>
             <div style="background: white; border: 1px solid #dee2e6; padding: 10px; border-radius: 6px; color: #333;">
@@ -285,4 +294,4 @@ if analysis['next_step'] == "Escalate":
     st.markdown('</div>', unsafe_allow_html=True)
 
 # Footer
-st.markdown("<br><center style='color: var(--text-secondary); font-size: 11px;'>Sefket Nouri • Refined Priority Intelligence • Reactive Mode</center>", unsafe_allow_html=True)
+st.markdown("<br><center style='color: var(--text-secondary); font-size: 11px;'>Sefket Nouri • Service Outage & Impact Intelligence • Reactive Mode</center>", unsafe_allow_html=True)
