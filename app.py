@@ -1,198 +1,325 @@
 import streamlit as st
+from st_keyup import st_keyup
+import time
 
-st.set_page_config(page_title="Social Inbox Triage", layout="centered")
+# --- CONFIG ---
+st.set_page_config(
+    page_title="Social Inbox Triage",
+    page_icon="📥",
+    layout="centered",
+    initial_sidebar_state="collapsed",
+)
 
+# --- STYLING ---
 st.markdown("""
 <style>
-.top-section { margin-bottom: 1.5rem; }
-.top-section h3 { margin-bottom: 0.1rem; font-size: 1.1rem; }
-.top-section p { margin: 0.1rem 0; font-size: 0.9rem; color: #555; }
-.top-section .flow { margin-top: 0.5rem; font-size: 0.85rem; color: #888; }
-.label-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.4rem 0; }
-.badge { padding: 2px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 500; }
-.badge-intent { background: #e8f0fe; color: #1a56db; }
-.badge-sentiment-neg { background: #fde8e8; color: #c81e1e; }
-.badge-sentiment-pos { background: #e8f8e8; color: #1a7a1a; }
-.badge-sentiment-neu { background: #f0f0f0; color: #444; }
-.badge-sentiment-mix { background: #fff3e0; color: #b45309; }
-.badge-urgency-high { background: #fde8e8; color: #c81e1e; }
-.badge-urgency-med { background: #fff3e0; color: #b45309; }
-.badge-urgency-low { background: #e8f8e8; color: #1a7a1a; }
-.badge-channel { background: #f3e8ff; color: #6d28d9; }
-.badge-route { background: #e8f0fe; color: #1e40af; }
-.triage-box { border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem 1.2rem; margin-bottom: 1.2rem; background: #fafafa; }
-.triage-box h4 { margin: 0 0 0.5rem 0; font-size: 0.95rem; color: #111; }
-.suggested { margin-top: 0.8rem; font-size: 0.875rem; color: #333; background: #f0f4ff; padding: 0.6rem 0.9rem; border-radius: 6px; border-left: 3px solid #3b82f6; }
-.footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #e5e7eb; font-size: 0.8rem; color: #999; text-align: center; }
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap');
+
+    :root {
+        --text-primary: #f7f9f9;
+        --text-secondary: #8b98a5;
+        --bg-main: #15202b;
+        --bg-card: #1e2732;
+        --accent: #1d9bf0;
+        --border: #38444d;
+    }
+
+    html, body, [data-testid="stAppViewContainer"] {
+        font-family: 'Outfit', sans-serif;
+        background-color: var(--bg-main);
+        color: var(--text-primary);
+    }
+
+    [data-testid="stHeader"] {
+        background-color: rgba(21, 32, 43, 0.8);
+        backdrop-filter: blur(12px);
+    }
+
+    /* Message Card styling */
+    .message-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 20px;
+        margin-bottom: 16px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        animation: fadeIn 0.5s ease-out;
+    }
+
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .message-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 12px;
+    }
+
+    .avatar {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: #38444d;
+        margin-right: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+    }
+
+    .user-info {
+        flex-grow: 1;
+    }
+
+    .user-name {
+        font-weight: 700;
+        font-size: 16px;
+    }
+
+    .user-handle {
+        color: var(--text-secondary);
+        font-size: 14px;
+    }
+
+    /* Triage Section */
+    .triage-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        margin-bottom: 16px;
+    }
+
+    .badge-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px;
+        text-align: center;
+    }
+
+    .badge-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--text-secondary);
+        margin-bottom: 2px;
+    }
+
+    .badge-value {
+        font-weight: 700;
+        font-size: 16px;
+    }
+
+    /* Colors */
+    .val-critical { color: #f4212e; }
+    .val-high { color: #f4212e; }
+    .val-medium { color: #ffad1f; }
+    .val-low { color: #00ba7c; }
+    .val-positive { color: #00ba7c; }
+    .val-negative { color: #f4212e; }
+    .val-bug { color: #7856ff; }
+    .val-billing { color: #00ba7c; }
+
+    /* Featured Response */
+    .response-card {
+        background: linear-gradient(145deg, #1e2732, #253341);
+        border: 1px solid var(--accent);
+        border-radius: 12px;
+        padding: 16px;
+        margin-top: 12px;
+    }
+
+    .response-label {
+        color: var(--accent);
+        font-weight: 700;
+        font-size: 12px;
+        margin-bottom: 4px;
+    }
+
+    .reasoning {
+        font-size: 13px;
+        font-style: italic;
+        color: var(--text-secondary);
+        margin-bottom: 12px;
+        line-height: 1.3;
+        border-left: 2px solid var(--accent);
+        padding-left: 10px;
+    }
+
+    /* Override Streamlit input */
+    .stTextInput input {
+        background-color: var(--bg-card) !important;
+        border: 1px solid var(--border) !important;
+        color: var(--text-primary) !important;
+        border-radius: 12px !important;
+        padding: 12px 16px !important;
+        font-size: 16px !important;
+    }
+
+    .stTextInput input:focus {
+        border-color: var(--accent) !important;
+        box-shadow: 0 0 0 2px rgba(29, 155, 240, 0.2) !important;
+    }
+
+    /* Mobile adjustments */
+    @media (max-width: 600px) {
+        .triage-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+    /* Hide Streamlit elements for a cleaner pro-tool feel */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    [data-testid="stHeader"] {display: none;}
 </style>
 """, unsafe_allow_html=True)
 
-# Top section
-st.markdown("""
-<div class="top-section">
-<h3>Sefket Nouri</h3>
-<p>Social Media Support Specialist candidate</p>
-<p>Support issues repeat. I built small tools to reduce that friction across deployment, billing, and inbound triage.</p>
-<p class="flow">Start with: Deployment Debugger → Support Gatekeeper → Social Inbox Triage</p>
-</div>
-""", unsafe_allow_html=True)
+# --- LOGIC ---
+class TriageAI:
+    @staticmethod
+    def analyze(text):
+        text = text.lower()
+        
+        # Default states
+        intent = "Question"
+        sentiment = "Neutral"
+        urgency = "Low"
+        risk = "Low"
+        channel = "Public"
+        action = "Reply Publicly"
+        reasoning = "Standard inquiry detected."
+        suggested_response = "Hi! Thanks for reaching out. How can I help you with this?"
 
-st.markdown("**Demo:** How inbound social messages can be triaged before they become support tickets.")
-st.markdown("---")
+        # 1. Detect Intent
+        if any(w in text for w in ["bug", "fail", "error", "broken", "disappeared", "fix"]):
+            intent = "Bug"
+        elif any(w in text for w in ["charge", "billing", "money", "paid", "refund", "price"]):
+            intent = "Billing"
+        elif any(w in text for w in ["feature", "request", "add", "can you"]):
+            intent = "Feature"
+        elif any(w in text for w in ["love", "thanks", "great", "awesome", "lol"]):
+            intent = "Feedback"
 
+        # 2. Detect Sentiment
+        if any(w in text for w in ["charged twice", "wtf", "now", "fix this", "??", "!!"]):
+            sentiment = "Negative"
+        elif any(w in text for w in ["lol", "thanks", "wow", "love"]):
+            sentiment = "Positive"
+        elif any(w in text for w in ["maybe", "idk", "but"]):
+            sentiment = "Mixed"
 
-def classify(text):
-    t = text.lower().strip()
+        # 3. Detect Urgency & Risk
+        if any(w in text for w in ["fix this now", "randomly fail", "disappeared", "charged twice"]):
+            urgency = "High"
+            risk = "High"
+        elif "!" in text or "?" in text:
+            urgency = "Medium"
+        
+        # 4. Channel Logic
+        if intent == "Billing" or risk == "High":
+            channel = "Private (DM)"
+            action = "Move to DM"
+        elif intent == "Bug":
+            action = "Escalate Internally"
+        elif intent == "Feedback" and sentiment == "Positive":
+            action = "Reply Publicly"
+        
+        # 5. Reasoning & Response Generation (Dynamic Templates)
+        if intent == "Billing" and sentiment == "Negative":
+            reasoning = "Detected duplicate charge complaint. Sensitive financial data requires private channel move."
+            suggested_response = "I'm so sorry about the double charge! That sounds frustrating. Can you send us a DM with your email so I can fix this right away?"
+        
+        elif intent == "Bug" and urgency == "High":
+            reasoning = "Critical functional failure reported. Immediate internal escalation recommended."
+            suggested_response = "I'm really sorry to hear your projects disappeared—that shouldn't happen. DM us your account details and I’ll get our senior engineers on this now."
+        
+        elif text.strip() == "":
+            reasoning = "Waiting for input..."
+            suggested_response = "I'm ready to help! Paste a message above."
+        
+        elif "dark mode" in text:
+            reasoning = "Product feedback regarding feature parity. Low urgency, high engagement opportunity."
+            suggested_response = "I hear you! Dark mode is a top request. I'll make sure the product team knows it's still missing in 2026. Stay tuned! 🌑"
 
-    if len(t) < 5 or not any(c.isalpha() for c in t):
-        return None
+        elif "fail lol" in text:
+            reasoning = "Snarky feedback reporting UX failure. Medium risk due to public visibility."
+            suggested_response = "Ouch, definitely not the experience we want for you. Which deploy failed? I'd love to dig into this for you."
 
-    # Intent
-    bug_words = ["stopped", "broken", "not working", "error", "crash", "bug", "failing", "down", "repl stopped", "won't", "wont", "cant", "can't", "issue", "problem", "fix", "idk why"]
-    billing_words = ["charge", "charged", "refund", "billing", "invoice", "payment", "subscription", "plan", "money", "price", "cost", "fee", "paid", "paying"]
-    feature_words = ["add", "feature", "would be great", "wish", "suggest", "suggestion", "could you", "please add", "support for", "when will"]
-    feedback_words = ["love", "great", "awesome", "amazing", "terrible", "hate", "worst", "best", "thank", "thanks"]
-    question_words = ["does", "do you", "can i", "is there", "how do", "what is", "does replit", "support", "?"]
+        return {
+            "intent": intent,
+            "sentiment": sentiment,
+            "urgency": urgency,
+            "risk": risk,
+            "channel": channel,
+            "action": action,
+            "reasoning": reasoning,
+            "suggested_response": suggested_response
+        }
 
-    if any(w in t for w in billing_words):
-        intent = "billing"
-    elif any(w in t for w in bug_words):
-        intent = "bug"
-    elif any(w in t for w in feature_words):
-        intent = "feature request"
-    elif any(w in t for w in feedback_words) and not any(w in t for w in question_words):
-        intent = "feedback"
-    elif any(w in t for w in question_words):
-        intent = "question"
-    else:
-        intent = "question"
+# --- APP UI ---
+st.title("📥 Social Inbox Triage")
+st.caption("AI-Powered Support Co-Pilot • Real-time Stream")
 
-    # Sentiment
-    neg_words = ["stopped", "broken", "not working", "error", "crash", "hate", "worst", "terrible", "awful", "angry", "frustrated", "disappointed", "😭", "😤", "😡", "wtf", "omg", "ugh"]
-    pos_words = ["love", "great", "awesome", "amazing", "thank", "thanks", "perfect", "best", "helpful", "❤️", "🙏", "😊", "👍"]
+# Input Section (Styled like a Message Card)
+st.markdown('<div class="message-card">', unsafe_allow_html=True)
+col_a, col_b = st.columns([1, 10])
+with col_a:
+    st.markdown('<div class="avatar">👤</div>', unsafe_allow_html=True)
+with col_b:
+    st.markdown('<div class="user-name">Unknown User</div><div class="user-handle">@customer</div>', unsafe_allow_html=True)
 
-    has_neg = any(w in t for w in neg_words)
-    has_pos = any(w in t for w in pos_words)
+# THE INPUT
+default_text = "your app just charged me twice?? what is this"
+message = st_keyup("Incoming message", value=default_text, key="msg_input", label_visibility="collapsed")
+st.markdown('</div>', unsafe_allow_html=True)
 
-    if has_neg and has_pos:
-        sentiment = "mixed"
-    elif has_neg:
-        sentiment = "negative"
-    elif has_pos:
-        sentiment = "positive"
-    else:
-        sentiment = "neutral"
+# Analysis
+analysis = TriageAI.analyze(message)
 
-    # Urgency
-    urgent_words = ["stopped", "broken", "not working", "error", "crash", "urgent", "asap", "immediately", "right now", "emergency", "production", "😭"]
-    low_words = ["feature", "suggestion", "love", "great", "just wondering", "does", "do you support"]
-
-    if any(w in t for w in urgent_words):
-        urgency = "high"
-    elif any(w in t for w in low_words):
-        urgency = "low"
-    else:
-        urgency = "medium"
-
-    # Channel
-    dm_words = ["dm", "direct", "private", "account", "password", "email", "login", "billed", "charged", "payment"]
-    channel = "private" if any(w in t for w in dm_words) else "public"
-
-    # Route
-    if intent == "billing":
-        route = "support"
-        response = "Acknowledge publicly if on a public channel, then move to DM. Route to billing support with account details."
-    elif intent == "bug" and sentiment == "negative" and channel == "public":
-        route = "support"
-        response = "Acknowledge issue publicly and move to DM for details."
-    elif intent == "bug":
-        route = "support"
-        response = "Ask for error details and environment info. Route to support if unresolved."
-    elif intent == "question":
-        route = "docs"
-        response = "Reply with the relevant docs link. Keep it brief and direct."
-    elif intent == "feature request":
-        route = "community"
-        response = "Thank them and point to the feature request board or community forum."
-    elif intent == "feedback" and sentiment == "positive":
-        route = "community"
-        response = "Reply with a short thank-you. No escalation needed."
-    elif intent == "feedback" and sentiment == "negative":
-        route = "support"
-        response = "Acknowledge the frustration and ask what specifically went wrong."
-    else:
-        route = "support"
-        response = "Review manually and determine best path."
-
-    return {
-        "intent": intent,
-        "sentiment": sentiment,
-        "urgency": urgency,
-        "channel": channel,
-        "route": route,
-        "response": response,
-    }
-
-
-sentiment_class = {
-    "negative": "badge-sentiment-neg",
-    "positive": "badge-sentiment-pos",
-    "neutral": "badge-sentiment-neu",
-    "mixed": "badge-sentiment-mix",
-}
-
-urgency_class = {
-    "high": "badge-urgency-high",
-    "medium": "badge-urgency-med",
-    "low": "badge-urgency-low",
-}
-
-
-def render_triage(label, text):
-    result = classify(text)
-    st.markdown(f"**{label}**")
-    st.code(text, language=None)
-
-    if result is None:
-        st.warning("Could not determine intent. Try a full message.")
-        return
-
-    sc = sentiment_class.get(result["sentiment"], "badge-sentiment-neu")
-    uc = urgency_class.get(result["urgency"], "badge-urgency-med")
-
-    st.markdown(f"""
-    <div class="triage-box">
-      <div class="label-row">
-        <span class="badge badge-intent">Intent: {result['intent']}</span>
-        <span class="badge {sc}">Sentiment: {result['sentiment']}</span>
-        <span class="badge {uc}">Urgency: {result['urgency']}</span>
-        <span class="badge badge-channel">Channel: {result['channel']}</span>
-        <span class="badge badge-route">Route: {result['route']}</span>
-      </div>
-      <div class="suggested">💬 {result['response']}</div>
+# Triage Metrics Grid
+st.markdown(f"""
+<div class="triage-grid">
+    <div class="badge-card">
+        <div class="badge-label">Intent</div>
+        <div class="badge-value val-{analysis['intent'].lower()}">{analysis['intent']}</div>
     </div>
-    """, unsafe_allow_html=True)
-
-
-# Input
-user_input = st.text_area(
-    "Paste a tweet, DM, or comment",
-    value="yo my repl stopped working and idk why 😭",
-    height=80,
-)
-
-render_triage("Your input", user_input)
-
-st.markdown("---")
-
-# Second example
-render_triage("Example", "does replit support python 3.12?")
-
-# Footer
-st.markdown("""
-<div class="footer">
-Sefket Nouri — Social Media Support Specialist<br>
-Focused on reducing repeat support issues through tooling and systems thinking<br>
-LinkedIn · View implementation on Replit
+    <div class="badge-card">
+        <div class="badge-label">Sentiment</div>
+        <div class="badge-value val-{analysis['sentiment'].lower()}">{analysis['sentiment']}</div>
+    </div>
+    <div class="badge-card">
+        <div class="badge-label">Urgency</div>
+        <div class="badge-value val-{analysis['urgency'].lower()}">{analysis['urgency']}</div>
+    </div>
+    <div class="badge-card">
+        <div class="badge-label">Risk Level</div>
+        <div class="badge-value val-{analysis['risk'].lower()}">{analysis['risk']}</div>
+    </div>
+    <div class="badge-card">
+        <div class="badge-label">Channel</div>
+        <div class="badge-value">{analysis['channel']}</div>
+    </div>
+    <div class="badge-card">
+        <div class="badge-label">Action</div>
+        <div class="badge-value">{analysis['action']}</div>
+    </div>
 </div>
 """, unsafe_allow_html=True)
+
+# AI Insights
+st.markdown(f"""
+<div class="response-card">
+    <div class="response-label">AI REASONING</div>
+    <div class="reasoning">"{analysis['reasoning']}"</div>
+    <div class="response-label">SUGGESTED RESPONSE</div>
+    <div style="font-size: 15px; line-height: 1.5; color: #f7f9f9;">
+        {analysis['suggested_response']}
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# Footer info
+st.markdown("<br><center style='color: #8b98a5; font-size: 12px;'>Reactive Engine v2.0 • Scanning active...</center>", unsafe_allow_html=True)
