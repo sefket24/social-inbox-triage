@@ -210,7 +210,7 @@ st.markdown(f"""
         Social support is noisy. I built small tools to turn that into clear decisions across deployment, billing, and inbound triage.
     </div>
     <div class="workflow-nav">
-        Start with: Deployment Debugger → Support Gatekeeper → Social Inbox Triage
+        Workflow: Deployment Debugger → Support Gatekeeper → <span style="color:var(--accent); border-bottom: 2px solid var(--accent);">Social Inbox Triage</span>
     </div>
 </div>
 """, unsafe_allow_html=True)
