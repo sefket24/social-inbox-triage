@@ -79,7 +79,6 @@ st.markdown("""
     .val-critical, .val-high { color: var(--danger); }
     .val-medium { color: var(--warning); }
     .val-low, .val-positive { color: var(--success); }
-    .val-mixed { color: var(--warning); }
     .val-negative { color: var(--danger); }
 
     /* Reasoning/Response */
@@ -93,15 +92,7 @@ st.markdown("""
     .escalation-box.active { border-color: var(--danger); background: rgba(244, 33, 46, 0.1); }
 
     /* Buttons */
-    .stButton>button {
-        width: 100%;
-        background-color: var(--accent) !important;
-        color: white !important;
-        font-weight: 700 !important;
-        border: none !important;
-        border-radius: 8px !important;
-        padding: 10px !important;
-    }
+    .stButton>button { width: 100%; background-color: var(--accent) !important; color: white !important; font-weight: 700 !important; border: none !important; border-radius: 8px !important; padding: 10px !important; }
 
     /* Payload */
     .slack-payload { background: var(--payload-bg); color: var(--payload-text); border: 1px solid #ced4da; border-radius: 10px; padding: 16px; font-size: 12px; margin-top: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
@@ -130,18 +121,20 @@ class PriorityTriage:
         is_outage = any(w in text_l for w in ["site is down", "website is down", "app is down", "service is down", "not loading"])
         is_financial = any(w in text_l for w in ["losing money", "costing me money", "revenue", "customers affected", "business impact"])
         
+        # Engineering escalation condition (strict)
+        is_system_bug = any(w in text_l for w in ["reproducible bug", "system-wide failure", "confirmed bug", "broken for everyone"])
+        is_multi_user = any(w in text_l for w in ["multiple users", "all users", "many people"])
+        
         # Urgency Detection
         urgency_score = 0
-        urgency_phrases = ["urgent", "asap", "right now", "tight deadline", "need help", "fast", "!!"]
-        for p in urgency_phrases:
-            if p in text_l: urgency_score += 1
-        
+        if "!!" in text: urgency_score += 1
+        if any(w in text_l for w in ["urgent", "asap", "now", "deadline"]): urgency_score += 1
         caps_count = len(re.findall(r'\b[A-Z]{3,}\b', text))
         if caps_count >= 2: urgency_score += 1
         
         # --- RULE STACKING ---
         sentiment, urgency, risk, intent, channel = "Neutral", "Low", "Low", "Question", "Public"
-        next_step, target, flow = "Reply Publicly", "Support (Zendesk)", "Support Ownership"
+        next_step, owner, flow = "Reply Publicly", "Support (Zendesk)", "Support → Engineering (if needed)"
         
         # Intent
         if is_business := is_enterprise: intent = "Enterprise"
@@ -151,56 +144,51 @@ class PriorityTriage:
         elif is_account: intent = "Account Access"
 
         # Sentiment
-        if has_profanity or any(w in text_l for w in ["not working", "locked out", "broken"]) or is_outage or is_financial:
+        if has_profanity or any(w in text_l for w in ["not working", "locked out"]) or is_outage or is_financial:
             sentiment = "Negative"
 
         # Urgency & Risk
         if urgency_score >= 1 or is_account: urgency = "Medium"
-        if urgency_score >= 2 or is_enterprise or is_outage: urgency = "High"
-        if has_profanity or is_financial or is_legal or is_enterprise: risk = "High"
+        if urgency_score >= 2 or is_enterprise or is_outage or is_financial: urgency = "High"
+        if is_legal or is_financial or has_profanity or is_enterprise: risk = "High"
         elif is_outage: risk = "Medium"
 
-        # ESCALATION FLOW (Two-Stage Model)
-        esc_required = (risk == "High" or urgency == "High")
+        # ESCALATION FLOW (Support-First Model)
+        target = "Support (Zendesk)" # Default Ownership
         
-        # Default Flow: Support (Zendesk) -> Engineering (Linear)
-        flow = "Support (Zendesk) → Engineering (Linear)"
-        target = "Support (Zendesk)"
-        
+        # Legal override
         if is_legal:
-            target, next_step, flow = "Exec (Slack)", "Escalate Immediately", "Direct to Exec"
-        elif is_outage and is_financial:
-            target, next_step = "Engineering (Linear)", "Escalate + Respond (Urgent)"
-            flow = "Fast-Track Support → Engineering"
-        elif is_outage:
-            target, next_step = "Support (Zendesk)", "Reply immediately (Offer DM) + escalate via Support"
+            target, next_step, flow, owner = "Exec (Slack)", "Escalate Immediately", "Direct to Exec", "Triage (Legal)"
+        # High severity outage / financial impact
+        elif is_outage or is_financial:
+            risk, urgency = "High", "High"
+            next_step = "Reply immediately (Offer DM) + escalate via Support"
+            # Strict condition for Engineering
+            if is_system_bug or is_multi_user:
+                target, flow = "Engineering (Linear)", "Confirmed Bug Path"
+            else:
+                target, flow = "Support (Zendesk)", "Support → Engineering (if validated)"
         elif is_account:
-            target, next_step = "Support (Zendesk)", "Reply Publicly (Offer DM)"
-            flow = "Internal Verification Flow"
+            next_step = "Reply Publicly (Offer DM)"
+        
+        reasoning = "Support-first ownership. Validating reports before engineering escalation."
+        if is_legal: reasoning = "Legal risk override. Directing to executive leadership."
+        elif is_system_bug: reasoning = "Verified system-wide failure detected. Escalating to Engineering."
+        elif is_outage: reasoning = "Potential outage reported. Support team currently validating reproducibility."
 
-        # Final Validation Confidence
-        is_high_confidence_bug = (is_outage and is_financial) or (intent == "Bug" and urgency == "High")
-
-        # Specialized Reasoning
-        reasoning = "Initial support ownership active. Validating issue before technical escalation."
-        if is_legal: reasoning = "Legal risk detected. Bypassing validation; direct escalation to leadership."
-        elif is_outage and is_financial: reasoning = "Major financial impact confirmed. Fast-tracking to Engineering for immediate resolution."
-        elif is_outage: reasoning = "Potential outage reported. Support validating reproducibility before engineering handoff."
-        elif is_account: reasoning = "Sensitive account access issue. Gathering details via DM first."
-
-        suggested = "Hi! I'm sorry to hear that. Can you send us a DM with your email so we can verify the details and help right away?"
+        suggested = "Hi! I'm sorry to hear that. Can you send us a DM with your email so we can investigate this right away?"
         if is_legal: suggested = "I hear your concern. I've escalated this specifically to our senior leadership team to address this with you."
 
         return {
             "intent": intent, "sentiment": sentiment, "urgency": urgency, "risk": risk,
-            "next_step": next_step, "channel": channel, "target": target, "flow": flow,
+            "next_step": next_step, "channel": channel, "target": target, "flow": flow, "owner": owner,
             "reasoning": reasoning, "suggested": suggested, 
-            "is_high_confidence_bug": is_high_confidence_bug, "is_legal": is_legal
+            "is_confirmed": (is_system_bug or is_multi_user), "is_legal": is_legal
         }
 
 # --- APP UI ---
 st.title("📥 Social Inbox Triage")
-st.caption("Decision Support Engine • Two-Stage Escalation Active")
+st.caption("Support-First decision Engine • Multi-Stage validation Active")
 
 # Header
 st.markdown(f"""
@@ -216,8 +204,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # Input
-st.markdown('<div class="outfit-font" style="font-size:13px; font-weight:600; color:var(--text-secondary); margin-bottom:4px;">Paste messy social input below:</div>', unsafe_allow_html=True)
-message = st_keyup("Input", value="my website is down!! I NEED help! I'm losing money", key="msg_input", label_visibility="collapsed")
+message = st_keyup("Incoming message", value="my website is down!! I'm losing money", key="msg_input")
 
 # Read-only preview
 st.markdown(f"""
@@ -240,12 +227,12 @@ st.markdown(f"""
     <div class="badge-card"><div class="badge-label">Sentiment</div><div class="badge-value val-{analysis['sentiment'].lower().replace('/','')}">{analysis['sentiment']}</div></div>
     <div class="badge-card"><div class="badge-label">Urgency</div><div class="badge-value val-{analysis['urgency'].lower()}">{analysis['urgency']}</div></div>
     <div class="badge-card"><div class="badge-label">Risk Level</div><div class="badge-value val-{analysis['risk'].lower()}">{analysis['risk']}</div></div>
-    <div class="badge-card"><div class="badge-label">Escalation Flow</div><div class="badge-value" style="font-size:11px;">{analysis['flow']}</div></div>
+    <div class="badge-card"><div class="badge-label">Current Owner</div><div class="badge-value" style="font-size:11px;">{analysis['owner']}</div></div>
     <div class="badge-card"><div class="badge-label">Next Step</div><div class="badge-value" style="font-size:11px;">{analysis['next_step']}</div></div>
 </div>
 """, unsafe_allow_html=True)
 
-# Reasoning Sections
+# Reasoning
 st.markdown(f"""
 <div class="result-card">
     <div class="label-accent">AI Reasoning</div>
@@ -256,40 +243,37 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # Escalation Workflow
-if ("Escalate" in analysis['next_step']) or (analysis['urgency'] == "High"):
+if (analysis['risk'] == "High") or (analysis['urgency'] == "High"):
     st.markdown('<div class="section-title">Escalation</div>', unsafe_allow_html=True)
     st.markdown(f"""
     <div class="escalation-box active">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
             <div><div class="badge-label">Status</div><div class="badge-value" style="color:var(--danger);">Required</div></div>
-            <div><div class="badge-label">Current Owner</div><div class="badge-value">Support (Triage)</div></div>
+            <div><div class="badge-label">Flow</div><div class="badge-value" style="font-size:11px;">{analysis['flow']}</div></div>
             <div><div class="badge-label">Target</div><div class="badge-value">{analysis['target']}</div></div>
         </div>
     """, unsafe_allow_html=True)
     
-    # 5. BUTTON LOGIC
+    # 5. BUTTON DYNAMIC LOGIC
     if analysis['is_legal']: btn_label = "Escalate to Exec Slack"
-    elif analysis['is_high_confidence_bug']: btn_label = "Escalate to Engineering"
+    elif analysis['is_confirmed']: btn_label = "Escalate to Engineering"
     else: btn_label = "Escalate to Support"
         
     if st.button(btn_label):
-        st.session_state.esc_v2 = True
-        st.session_state.m_v2 = message
+        st.session_state.esc_v3 = True
+        st.session_state.m_v3 = message
     
-    if st.session_state.get('esc_v2') and st.session_state.get('m_v2') == message:
+    if st.session_state.get('esc_v3') and st.session_state.get('m_v3') == message:
         ch = "#exec-escalations" if "Exec" in analysis['target'] else ("#linear-bugs" if "Engineering" in analysis['target'] else "#support-tickets")
         st.success(f"Escalated to {ch}")
-        
-        # 6. PAYLOAD UPDATES
         st.markdown(f"""
         <div class="slack-payload">
             <div class="payload-title">Internal Payload: {ch}</div>
-            <div class="payload-row"><div class="payload-label">Stage:</div><div>Initial Triage</div></div>
-            <div class="payload-row"><div class="payload-label">Owner:</div><div>Support</div></div>
             <div class="payload-row"><div class="payload-label">Priority:</div><div style="color: #dc3545; font-weight: 800;">{analysis['urgency'].upper()}</div></div>
+            <div class="payload-row"><div class="payload-label">Owner:</div><div>{analysis['owner']}</div></div>
             <div class="payload-label" style="margin-top:10px; margin-bottom:4px;">Draft Summary:</div>
             <div style="background: white; border: 1px solid #dee2e6; padding: 10px; border-radius: 6px; color: #333; font-size:12px;">
-                User reporting {analysis['intent'].lower()} affecting customers and revenue. Needs immediate validation.
+                {analysis['intent']} detected. Stage: Initial triage. Action: Validate impact before technical escalation.
             </div>
             <div class="payload-label" style="margin-top:12px; margin-bottom:4px;">Original Message:</div>
             <div style="font-style: italic; color: #6c757d; border-left: 3px solid #dee2e6; padding-left: 10px;">"{message}"</div>
@@ -298,4 +282,4 @@ if ("Escalate" in analysis['next_step']) or (analysis['urgency'] == "High"):
     st.markdown('</div>', unsafe_allow_html=True)
 
 # Footer
-st.markdown("<br><center style='color: var(--text-secondary); font-size: 11px;'>Sefket Nouri • Multi-Stage Triage Logic • Reactive Engine</center>", unsafe_allow_html=True)
+st.markdown("<br><center style='color: var(--text-secondary); font-size: 11px;'>Sefket Nouri • Support-First Validation Flow • Reactive Mode</center>", unsafe_allow_html=True)
