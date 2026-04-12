@@ -112,8 +112,28 @@ class PriorityTriage:
     def analyze(text):
         text_l = text.lower()
         
-        # 1. Feature Extraction
-        is_legal = any(w in text_l for w in ["lawyer", "sue", "legal", "attorney", "suing", "court"])
+        # 1. HARD OVERRIDE FOR LEGAL THREATS (FIRST CHECK)
+        legal_keywords = ["lawyer", "sue", "legal", "attorney", "suing", "lawsuit"]
+        is_legal = any(w in text_l for w in legal_keywords)
+        
+        if is_legal:
+            return {
+                "intent": "Legal / Complaint",
+                "sentiment": "Negative",
+                "urgency": "High",
+                "risk": "High",
+                "owner": "Exec (Slack)",
+                "target": "Exec (Slack)",
+                "next_step": "Escalate to Exec (Slack)",
+                "flow": "Direct to Exec",
+                "reasoning": "Legal risk override. Directing to executive leadership.",
+                "suggested": "I hear your concern. I've escalated this specifically to our senior leadership team to address this with you.",
+                "is_confirmed": False,
+                "is_legal": True,
+                "channel": "Public"
+            }
+        
+        # 2. Normal Feature Extraction
         is_enterprise = any(w in text_l for w in ["enterprise", "business", "client", "customer account"])
         is_account = any(w in text_l for w in ["locked out", "can't log in", "account access"])
         has_profanity = any(w in text_l for w in ["fuck", "shit", "damn", "wtf"])
@@ -135,9 +155,10 @@ class PriorityTriage:
         # --- RULE STACKING ---
         sentiment, urgency, risk, intent, channel = "Neutral", "Low", "Low", "Question", "Public"
         next_step, owner, flow = "Reply Publicly", "Support (Zendesk)", "Support → Engineering (if needed)"
+        target = "Support (Zendesk)"
         
         # Intent
-        if is_business := is_enterprise: intent = "Enterprise"
+        if is_enterprise: intent = "Enterprise"
         elif is_outage: intent = "Outage"
         elif any(w in text_l for w in ["bug", "fail", "broken", "deploy"]): intent = "Bug"
         elif any(w in text_l for w in ["billing", "overbilled", "charge", "refund"]): intent = "Billing"
@@ -150,17 +171,12 @@ class PriorityTriage:
         # Urgency & Risk
         if urgency_score >= 1 or is_account: urgency = "Medium"
         if urgency_score >= 2 or is_enterprise or is_outage or is_financial: urgency = "High"
-        if is_legal or is_financial or has_profanity or is_enterprise: risk = "High"
+        if is_financial or has_profanity or is_enterprise: risk = "High"
         elif is_outage: risk = "Medium"
 
         # ESCALATION FLOW (Support-First Model)
-        target = "Support (Zendesk)" # Default Ownership
-        
-        # Legal override
-        if is_legal:
-            target, next_step, flow, owner = "Exec (Slack)", "Escalate Immediately", "Direct to Exec", "Triage (Legal)"
         # High severity outage / financial impact
-        elif is_outage or is_financial:
+        if is_outage or is_financial:
             risk, urgency = "High", "High"
             next_step = "Reply immediately (Offer DM) + escalate via Support"
             # Strict condition for Engineering
@@ -172,18 +188,18 @@ class PriorityTriage:
             next_step = "Reply Publicly (Offer DM)"
         
         reasoning = "Support-first ownership. Validating reports before engineering escalation."
-        if is_legal: reasoning = "Legal risk override. Directing to executive leadership."
-        elif is_system_bug: reasoning = "Verified system-wide failure detected. Escalating to Engineering."
-        elif is_outage: reasoning = "Potential outage reported. Support team currently validating reproducibility."
-
         suggested = "Hi! I'm sorry to hear that. Can you send us a DM with your email so we can investigate this right away?"
-        if is_legal: suggested = "I hear your concern. I've escalated this specifically to our senior leadership team to address this with you."
+
+        if is_system_bug: 
+            reasoning = "Verified system-wide failure detected. Escalating to Engineering."
+        elif is_outage: 
+            reasoning = "Potential outage reported. Support team currently validating reproducibility."
 
         return {
             "intent": intent, "sentiment": sentiment, "urgency": urgency, "risk": risk,
             "next_step": next_step, "channel": channel, "target": target, "flow": flow, "owner": owner,
             "reasoning": reasoning, "suggested": suggested, 
-            "is_confirmed": (is_system_bug or is_multi_user), "is_legal": is_legal
+            "is_confirmed": (is_system_bug or is_multi_user), "is_legal": False
         }
 
 # --- APP UI ---
@@ -243,7 +259,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # Escalation Workflow
-if (analysis['risk'] == "High") or (analysis['urgency'] == "High"):
+if (analysis['risk'].upper() == "HIGH") or (analysis['urgency'].upper() == "HIGH"):
     st.markdown('<div class="section-title">Escalation</div>', unsafe_allow_html=True)
     st.markdown(f"""
     <div class="escalation-box active">
