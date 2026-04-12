@@ -133,73 +133,90 @@ class PriorityTriage:
                 "channel": "Public"
             }
         
-        # 2. Normal Feature Extraction
-        is_enterprise = any(w in text_l for w in ["enterprise", "business", "client", "customer account"])
-        is_account = any(w in text_l for w in ["locked out", "can't log in", "account access"])
-        has_profanity = any(w in text_l for w in ["fuck", "shit", "damn", "wtf"])
-        
+        # 2. SIGNAL DETECTION (WEIGHTED)
+        is_enterprise = "enterprise" in text_l
         is_outage = any(w in text_l for w in ["site is down", "website is down", "app is down", "service is down", "not loading"])
-        is_financial = any(w in text_l for w in ["losing money", "costing me money", "revenue", "customers affected", "business impact"])
+        is_billing = any(w in text_l for w in ["charged", "billing", "payment", "refund", "billed"])
+        is_frustrated = any(w in text_l for w in ["no response", "still waiting", "what's going on", "not working", "disappeared"]) or "??" in text_l
+        is_confused = any(w in text_l for w in ["idk", "what happened"]) or "??" in text_l
+        is_feature = any(w in text_l for w in ["do you have", "is there a way to", "feature"])
         
-        # Engineering escalation condition (strict)
-        is_system_bug = any(w in text_l for w in ["reproducible bug", "system-wide failure", "confirmed bug", "broken for everyone"])
-        is_multi_user = any(w in text_l for w in ["multiple users", "all users", "many people"])
+        # Sarcasm check
+        has_sarcasm = ("love this" in text_l or "great job" in text_l or "love getting" in text_l) and (is_billing or is_frustrated or "twice" in text_l)
         
-        # Urgency Detection
-        urgency_score = 0
-        if "!!" in text: urgency_score += 1
-        if any(w in text_l for w in ["urgent", "asap", "now", "deadline"]): urgency_score += 1
-        caps_count = len(re.findall(r'\b[A-Z]{3,}\b', text))
-        if caps_count >= 2: urgency_score += 1
+        # Intensity
+        has_multi_bang = "!!" in text
+        has_caps = len(re.findall(r'\b[A-Z]{3,}\b', text)) >= 2
         
-        # --- RULE STACKING ---
-        sentiment, urgency, risk, intent, channel = "Neutral", "Low", "Low", "Question", "Public"
+        # 3. BASE CLASSIFICATION
+        sentiment, urgency, risk, intent = "Neutral", "Low", "Low", "Question"
         next_step, owner, flow = "Reply Publicly", "Support (Zendesk)", "Support → Engineering (if needed)"
         target = "Support (Zendesk)"
+        channel = "Public"
         
-        # Intent
-        if is_enterprise: intent = "Enterprise"
+        # Intent mapping
+        if is_feature: intent = "Feature request"
+        elif is_billing: intent = "Billing"
         elif is_outage: intent = "Outage"
-        elif any(w in text_l for w in ["bug", "fail", "broken", "deploy"]): intent = "Bug"
-        elif any(w in text_l for w in ["billing", "overbilled", "charge", "refund"]): intent = "Billing"
-        elif is_account: intent = "Account Access"
-
-        # Sentiment
-        if has_profanity or any(w in text_l for w in ["not working", "locked out"]) or is_outage or is_financial:
-            sentiment = "Negative"
-
-        # Urgency & Risk
-        if urgency_score >= 1 or is_account: urgency = "Medium"
-        if urgency_score >= 2 or is_enterprise or is_outage or is_financial: urgency = "High"
-        if is_financial or has_profanity or is_enterprise: risk = "High"
-        elif is_outage: risk = "Medium"
-
-        # ESCALATION FLOW (Support-First Model)
-        # High severity outage / financial impact
-        if is_outage or is_financial:
-            risk, urgency = "High", "High"
-            next_step = "Reply immediately (Offer DM) + escalate via Support"
-            # Strict condition for Engineering
-            if is_system_bug or is_multi_user:
-                target, flow = "Engineering (Linear)", "Confirmed Bug Path"
-            else:
-                target, flow = "Support (Zendesk)", "Support → Engineering (if validated)"
-        elif is_account:
-            next_step = "Reply Publicly (Offer DM)"
+        elif has_sarcasm: intent = "Complaint"
+        elif is_enterprise: intent = "Enterprise"
         
-        reasoning = "Support-first ownership. Validating reports before engineering escalation."
-        suggested = "Hi! I'm sorry to hear that. Can you send us a DM with your email so we can investigate this right away?"
+        # Sentiment mapping
+        if is_frustrated or is_confused or is_billing or is_outage:
+            sentiment = "Negative"
+        if has_sarcasm:
+            sentiment = "Mixed / Negative"
+            
+        # Urgency & Risk mapping (Weighted)
+        if is_frustrated or is_confused or is_billing: 
+            urgency = "Medium"
+        if is_billing:
+            risk = "Medium"
+        if is_enterprise:
+            urgency = "High"
+            risk = "High"
+        if is_outage:
+            urgency = "High"
+            risk = "Medium"
 
-        if is_system_bug: 
-            reasoning = "Verified system-wide failure detected. Escalating to Engineering."
-        elif is_outage: 
-            reasoning = "Potential outage reported. Support team currently validating reproducibility."
+        # Intensity boost
+        if (has_multi_bang or has_caps) and urgency == "Low":
+            urgency = "Medium"
+        elif (has_multi_bang or has_caps) and urgency == "Medium":
+            urgency = "High"
+
+        # 4. NEXT STEP LOGIC (Based on Urgency)
+        if urgency == "High":
+            next_step = "Reply immediately (Offer DM)"
+        elif urgency == "Medium":
+            next_step = "Reply (Offer DM)"
+        
+        # 5. REASONING & SUGGESTED
+        reasoning = "Signal-based triage weighing tone, urgency, and subject matter."
+        suggested = "Hi! I'm sorry to hear that. Can you send us a DM with your email so we can investigate this right away?"
+        
+        is_confirmed = False
+        if is_outage:
+            # Check for Engineering triggers
+            is_system_bug = any(w in text_l for w in ["reproducible bug", "system-wide failure", "confirmed bug", "broken for everyone"])
+            is_multi_user = any(w in text_l for w in ["multiple users", "all users", "many people"])
+            if is_system_bug or is_multi_user:
+                target, flow, is_confirmed = "Engineering (Linear)", "Confirmed Bug Path", True
+                reasoning = "Verified system-wide failure detected. Escalating to Engineering."
+            else:
+                reasoning = "Potential outage reported. Support team currently validating reproducibility."
+        
+        if is_feature:
+            suggested = "That's a great idea! I'll pass that feature request along to the product team."
+            reasoning = "Routine feature request. Logging for product review."
+        elif is_billing:
+            suggested = "I understand the frustration with billing. Can you DM your account email so we can look at that charge?"
 
         return {
             "intent": intent, "sentiment": sentiment, "urgency": urgency, "risk": risk,
             "next_step": next_step, "channel": channel, "target": target, "flow": flow, "owner": owner,
             "reasoning": reasoning, "suggested": suggested, 
-            "is_confirmed": (is_system_bug or is_multi_user), "is_legal": False
+            "is_confirmed": is_confirmed, "is_legal": False
         }
 
 # --- APP UI ---
