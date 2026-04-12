@@ -2,6 +2,7 @@ import streamlit as st
 from st_keyup import st_keyup
 import time
 import re
+import random
 
 # --- CONFIG ---
 st.set_page_config(
@@ -199,7 +200,6 @@ class PriorityTriage:
             suggested = "Understood — we’re taking this seriously. Our team will follow up directly."
         elif urgency == "High" or is_outage:
             openings = ["Got it — that sounds urgent.", "Hmm — that shouldn’t happen and looks urgent.", "Thanks for flagging this. That sounds like a priority."]
-            import random
             opening = random.choice(openings)
             suggested = f"{opening} Can you DM details so we can check this right away?"
         elif is_billing:
