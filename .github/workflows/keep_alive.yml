@@ -11,4 +11,3 @@ on:
                   steps:
                         - name: Ping Streamlit App
                                 run: curl -s -o /dev/null -w "%{http_code}" https://sefket24-social-inbox-triage.streamlit.app/
-                                
