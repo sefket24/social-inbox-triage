@@ -242,6 +242,21 @@ class PriorityTriage:
 
 # --- APP UI ---
 st.title("📥 Social Inbox Triage")
+
+st.markdown(
+    "Built to triage high-volume social media inquiries, prioritize conversations, and streamline responses—aligned with how Replit’s Social Support team operates."
+)
+
+st.subheader("Example Workflow")
+
+st.markdown(
+    "Incoming message → classify → prioritize → respond\n\n"
+    "**Example:** User reports billing issue via social channel.\n"
+    "→ Categorize as billing\n"
+    "→ Assign priority based on urgency\n"
+    "→ Provide response or escalate if needed"
+)
+
 st.caption("Support-First decision Engine • Multi-Stage validation Active")
 
 # Header
